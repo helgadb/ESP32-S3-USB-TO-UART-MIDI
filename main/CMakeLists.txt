@@ -4,12 +4,12 @@ idf_component_register(
         "midi_uart.c"
         "midi_class_driver_txrx.c"
         "globals.c"
-        "midi_storage.c"
         "oled_display.c"
         "navigation.c"
-        "midi_buttons.c"
         "power_management.c"
-        "usb_daemon.c"
+        "usb_daemon.c"        
+        "midi_storage.c"
+        "led_rgb.c"
 
     INCLUDE_DIRS 
         "."
@@ -21,6 +21,7 @@ idf_component_register(
         ssd1306
         nvs_flash
         esp_pm
+        led_strip
 
     PRIV_REQUIRES 
         usb

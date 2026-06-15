@@ -3,18 +3,18 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "freertos/queue.h"
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "usb/usb_host.h"
 
 #include "midi_class_driver_txrx.h"
 #include "midi_uart.h"
+#include "led_rgb.h"
 
 static const char *TAG = "MIDI_MAIN";
 
 //==========================
-// CONFIGURAÇÕES
+// CONFIGURATIONS
 //==========================
 #define DAEMON_TASK_PRIORITY    2
 #define CLASS_TASK_PRIORITY     3
@@ -74,26 +74,47 @@ static void uart_to_usb_task(void *arg)
             UART_NUM_CFG,
             data,
             sizeof(data),
-            pdMS_TO_TICKS(10)     // suficiente para yield
+            pdMS_TO_TICKS(10)
         );
 
         if (len > 0) {
             midi_uart_parse_and_send_to_usb(data, len);
         }
 
-        // --- IMPORTANTE ---
-        // Evita travar o watchdog mesmo sob carga alta
         vTaskDelay(1);
     }
 }
 
 
 //==========================
-// Hook (USB → UART fallback)
+// Hook (USB → UART)
 //==========================
 void process_usb_rx_for_uart(const uint8_t *data, size_t length)
 {
     midi_uart_send_to_uart(data, length);
+}
+
+
+//==========================
+// TASK: LED Blink Indicator (optional)
+//==========================
+static void led_indicator_task(void *arg)
+{
+    // Brief blink pattern to confirm ESP is alive
+    vTaskDelay(pdMS_TO_TICKS(500));
+    set_led_red(true);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    set_led_green(true);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    set_led_blue(true);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    
+    // Return to steady blue (power on / ready)
+    set_led_blue(true);
+    ESP_LOGI(TAG, "LED indicator ready - steady blue");
+    
+    // Optional: delete task after blink pattern, or keep for future status indication
+    vTaskDelete(NULL);
 }
 
 
@@ -104,56 +125,66 @@ void app_main(void)
 {
     SemaphoreHandle_t ready_sem = xSemaphoreCreateBinary();
 
-    TaskHandle_t usb_daemon_hdl;
-    TaskHandle_t class_driver_hdl;
-    TaskHandle_t uart_to_usb_hdl;
-
     ESP_LOGI(TAG, "=================================");
     ESP_LOGI(TAG, "     Starting MIDI Translator     ");
     ESP_LOGI(TAG, "=================================");
 
-    // 1) Inicializar UART MIDI
+    // 0) Initialize RGB LED (power indicator)
+    init_led_rgb();
+
+    // 1) Initialize UART MIDI
     midi_uart_init();
 
-    // 2) Iniciar task de baixa latência USB→UART
+    // 2) Start USB→UART task
     midi_uart_start_usb_to_uart_task(
-        USB2UART_TASK_PRIORITY,   // alta prioridade
+        USB2UART_TASK_PRIORITY,
         USB_STACK_SIZE,
-        1                         // CPU 1
+        1
     );
 
-    // 3) Task USB Host Daemon
+    // 3) USB Host Daemon task
     xTaskCreatePinnedToCore(
         usb_daemon_task,
         "usb_daemon",
         DAEMON_STACK_SIZE,
         ready_sem,
         DAEMON_TASK_PRIORITY,
-        &usb_daemon_hdl,
+        NULL,
         0
     );
 
-    // 4) Task principal do driver USB MIDI
+    // 4) USB MIDI Class Driver task
     xTaskCreatePinnedToCore(
         class_driver_task,
         "usb_midi_class",
         CLASS_STACK_SIZE,
         ready_sem,
         CLASS_TASK_PRIORITY,
-        &class_driver_hdl,
+        NULL,
         0
     );
 
-    // 5) Task UART → USB (corrigida)
+    // 5) UART → USB task
     xTaskCreatePinnedToCore(
         uart_to_usb_task,
         "uart_to_usb",
         UART_STACK_SIZE,
         NULL,
         UART_TASK_PRIORITY,
-        &uart_to_usb_hdl,
+        NULL,
         1
     );
 
+    // 6) LED indicator task (shows startup sequence)
+    xTaskCreate(
+        led_indicator_task,
+        "led_indicator",
+        2048,
+        NULL,
+        1,
+        NULL
+    );
+
     ESP_LOGI(TAG, "System Ready. MIDI pass-through active.");
+    ESP_LOGI(TAG, "LED is BLUE = System running");
 }
