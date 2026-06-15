@@ -4,7 +4,7 @@
 
 static const char *TAG = "LED_RGB";
 
-#define LED_RGB_GPIO    48
+#define LED_RGB_GPIO    48  // 21 para ESP32-S3-ZERO ou 48 para YD-ESP32-S3
 #define LED_NUM_LEDS    1
 
 static led_strip_handle_t led_strip;
